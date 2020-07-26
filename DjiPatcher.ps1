@@ -132,7 +132,7 @@ function Foreach-WithProgress {
         [ScriptBlock] $script,
         [Parameter(ValueFromPipeline)]
         $line,
-        [string]$ProgressActivity = "Processing"
+        [string]$ProgressActivity = "Foreach..."
     )
     
 
