@@ -1,3 +1,15 @@
+function GetInt32BigEndian {
+    param (
+        [byte[]]$bytes,
+        [int]$index
+    )
+
+    $v = $bytes[$index..($index+3)];
+    [Array]::Reverse($v);
+    #Write-Debug "GetInt32BigEndian: Reversed: $($v | format-hex) "
+    return [System.BitConverter]::ToInt32($v, 0);
+}
+
 function Patch-DjiDngOpCodeList3 {
     [CmdletBinding()]
     param (
@@ -31,39 +43,75 @@ function Patch-DjiDngOpCodeList3 {
             Write-Host "$SourcePath : horizontal, skipping"
          }
     } else {
-        $oclFile = "$SourcePath--ocl3.dat";
-        $patchedOclFile = "$SourcePath--ocl3--patched.dat";
+        $oclFile = "$(resolve-path $SourcePath)--ocl3.dat";
+        $patchedOclFile =  "$(resolve-path $SourcePath)--ocl3--patched.dat";
 
-        exiftool -OpCodeList3 -m -b $SourcePath | set-content $oclFile -Encoding Byte;
+        
+        start-process exiftool "-OpCodeList3 -m -b $SourcePath" -RedirectStandardOutput $oclFile -Wait -NoNewWindow -WorkingDirectory $pwd;
+        
+        #Write-Debug " v";
+
 
         $ocl = [System.IO.File]::ReadAllBytes($oclFile);
-        $bytesB = $ocl[0x1c..0x1f];
-        $bytesR = $ocl[0x20..0x23];
 
-        $correctR = (0,0,0xF,0xA0);
-        $correctB = (0,0,0xA,0x6c);
+        # parse ocl
+        $count = GetInt32BigEndian $ocl 0;
+        Write-Debug "Opcodes count: $count";
+
+        $offset = 4;
+        for ($i = 0; $i -lt $count; $i++) {
+            $ocid = GetInt32BigEndian $ocl $offset
+            Write-Debug "OCID $ocid @ $offset";
+            if ($ocid -eq 9) { #gainmap
+                $gainMapOffset = $offset;
+                Write-Debug "Found GainMap at offset $offset";
+                break;
+            }
+
+            $variableSize = GetInt32BigEndian $ocl ($offset + 12);
+            Write-Debug "variableSize $variableSize @ $($offset + 12)";
+            $offset = $offset + 4*4 + $variableSize;
+        }
+
+        if (-not $gainMapOffset) {
+            throw "Couldnt find GainMap opcode in OpCodeList3"
+        }
+
+        $bytesBOffset = ($gainMapOffset + 0x18);
+        $bytesROffset = ($gainMapOffset + 0x1C);
+        $bytesB = $ocl[$bytesBOffset..($bytesBOffset + 3)];
+        $bytesR = $ocl[$bytesROffset..($bytesROffset + 3)];
+        $b = GetInt32BigEndian $bytesB 0;
+        $r = GetInt32BigEndian $bytesR 0;
+
+
+        $correctR = 0xFA0;
+        $correctB = 0xA6c;
 
         Write-Debug "Extracted B and R from $oclFile";
 
         # already correct?
-        if (-not (Compare-Object $bytesB $correctB) -and -not (Compare-Object $bytesR $correctR)) {
-            Write-Info "$SourcePath : orientation=$orientation but OpCodeList3 appears to be correct (fixed already?); skipping";
+        if ((($b -eq $correctB) -or ($r  -eq $correctR)) -and ($b -lt $r)) {
+            Write-Host ("$SourcePath : orientation=$orientation but OpCodeList3 appears to be correct (fixed already?) Bottom {0:x} is less than Right {1:x}; skipping" -f $b,$r);
+            return;
         }
 
-        $bNotExpected = Compare-Object $bytesB $correctR;
-        $rNotExpected = Compare-Object $bytesR $correctB;
+        $bNotExpected = $b -ne $correctR;
+        $rNotExpected = $r -ne $correctB;
 
-        if ($bNotExpected -or $rNotExpected) {
-            $msg = "Unexpected OpCodeList3 Bottom and Right. Expeccted wrong values 0xFA0 0xA6C, got:`nBottom: $(format-hex $bytesB)`nRight: $(format-hex $bytesR)";
+        if ($bNotExpected -and $rNotExpected) {
+            $msg = "Totally unexpected OpCodeList3 Bottom and Right. Expeccted wrong values {0:x} {1:x}, got: {2:x} {3:x}" -f $correctR,$correctB,$b,$r;
             if ($Force) {
                 Write-Warning "$SourcePath : $msg; proceeding anyway due to -Force";
             } else {
                 throw "$SourcePath : $msg";
             }
-        }
+        } 
 
-        $bytesB.CopyTo($ocl, 0x20);
-        $bytesR.CopyTo($ocl, 0x1c);
+
+
+        $bytesB.CopyTo($ocl, $bytesROffset);
+        $bytesR.CopyTo($ocl, $bytesBOffset);
         
 
         [System.IO.File]::WriteAllBytes($patchedOclFile, $ocl);
@@ -72,6 +120,29 @@ function Patch-DjiDngOpCodeList3 {
 
 
 
-        cmd /c "exiftool -OpCodeList3<=$patchedOclFile -b -m -n $overwriteOriginal $DestinationPath ";
+        $tmpOcl = [System.IO.Path]::GetTempFileName();
+        cp $patchedOclFile $tmpOcl -Force;
+        exiftool "-OpCodeList3<=$tmpOcl" -b -m -n $overwriteOriginal $DestinationPath ;
     }
+}
+
+function Foreach-WithProgress {
+    [CmdletBinding()]
+    param (
+        [ScriptBlock] $script,
+        [Parameter(ValueFromPipeline)]
+        $line,
+        [string]$ProgressActivity = "Processing"
+    )
+    
+
+    $in = $Input;
+    $count = $in.Count;
+
+    $in | %{$i=0;}{
+        Write-Progress -PercentComplete ($i*100/([float]$count)) -Activity $ProgressActivity;
+        Invoke-Command $script;
+        $i = $i+1;
+    }
+
 }
