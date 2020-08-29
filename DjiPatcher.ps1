@@ -16,7 +16,8 @@ function Patch-DjiDngOpCodeList3 {
         [string]$SourcePath,
         [string]$DestinationPath,
 
-        [switch]$Force
+        [switch]$Force,
+        [switch]$WhatIf
     )
 
     if ($Quiet) {
@@ -122,7 +123,12 @@ function Patch-DjiDngOpCodeList3 {
 
         $tmpOcl = [System.IO.Path]::GetTempFileName();
         cp $patchedOclFile $tmpOcl -Force;
-        exiftool "-OpCodeList3<=$tmpOcl" -b -m -n $overwriteOriginal $DestinationPath ;
+        
+        if (-not $WhatIf) {
+            exiftool "-OpCodeList3<=$tmpOcl" -b -m -n $overwriteOriginal $DestinationPath ;
+        } else {
+            write-host "Whatif: would run `nexiftool -OpCodeList3<=$tmpOcl -b -m -n $overwriteOriginal $DestinationPath";
+        }
     }
 }
 
