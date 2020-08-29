@@ -31,7 +31,7 @@ function Patch-DjiDngOpCodeList3 {
     if (-not $DestinationPath) {
         $DestinationPath = $SourcePath;
     } else {
-        cp $SourcePath $DestinationPath;
+        Copy-Item $SourcePath $DestinationPath;
         $overwriteOriginal = "-overwrite_original"
     }
 
@@ -48,7 +48,7 @@ function Patch-DjiDngOpCodeList3 {
         $patchedOclFile =  "$(resolve-path $SourcePath)--ocl3--patched.dat";
 
         
-        start-process exiftool "-OpCodeList3 -m -b $SourcePath" -RedirectStandardOutput $oclFile -Wait -NoNewWindow -WorkingDirectory $pwd;
+        exiftool -OpCodeList3 -w! "%f.%e--ocl3.dat" -m -b $SourcePath
         
         #Write-Debug " v";
 
@@ -122,7 +122,7 @@ function Patch-DjiDngOpCodeList3 {
 
 
         $tmpOcl = [System.IO.Path]::GetTempFileName();
-        cp $patchedOclFile $tmpOcl -Force;
+        Copy-Item $patchedOclFile $tmpOcl -Force;
         
         if (-not $WhatIf) {
             exiftool "-OpCodeList3<=$tmpOcl" -b -m -n $overwriteOriginal $DestinationPath ;
