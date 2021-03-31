@@ -37,7 +37,7 @@ $destFolders = $sourceFolders | %{
 
 
 
-    rsync -rtb --suffix "$($DuplicateFileSlug)$i" (join-path $newPath "*") $pathInInbox;
+    rsync -rtb --suffix "$($DuplicateFileSlug)$i" (join-path $newPath "*") "$pathInInbox/";
 
     Get-ChildItem $pathInInbox -filter "*$DuplicateFileSlug*" | %{ 
         $newName = $_.FullName -replace "(\..+)($DuplicateFileSlug.*)`$",'$2$1'
@@ -54,7 +54,7 @@ try {
     Push-Location $pathInInbox;
 
 
-    get-childitem $pathInInbox -filter *.dng | Foreach-WithProgress{ Patch-DjiDngOpCodeList3 $_.Name };
+    get-childitem $pathInInbox | Where-Object Name -match DJI_\d+\.dng | Foreach-WithProgress{ Patch-DjiDngOpCodeList3 $_.Name };
 
     write-debug "$pathInInbox ~> '$pathInVideo'";
     
